@@ -1,0 +1,3 @@
+MQ-4 Analog: D34
+Buzzer: D25
+Display MOSI: D23 | SCK: D18 | CS: D5
