@@ -1,115 +1,197 @@
-#include <SPI.h>
+#include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// --- DISPLAY SETTINGS ---
-#define SCREEN_WIDTH 128 
-#define SCREEN_HEIGHT 64 
+// ================= OLED CONFIGURATION =================
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
 
-// SPI Pins 
-#define OLED_MOSI   23
-#define OLED_CLK    18
-#define OLED_CS      5
-#define OLED_DC     16
-#define OLED_RESET  17 
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, OLED_MOSI, OLED_CLK, OLED_DC, OLED_RESET, OLED_CS);
+// ================= PIN ALLOCATIONS =================
+#define MQ4_PIN     34   // Analog Input
+#define BUZZER_PIN  25   // Alarm Sound
 
-// --- HARDWARE PINS ---
-#define GAS_SENSOR_PIN 34  // Analog Input
-#define BUZZER_PIN     25  // Output
-#define RED_LED        13  // Output (ALARM)
-#define BLUE_LED       12  // Output (OK STATUS)
+#define LED_GREEN   26   // SAFE
+#define LED_YELLOW  27   // WARNING
+#define LED_RED     14   // DANGER
 
-// --- THRESHOLDS ---
-int gasThreshold = 1800;
+#define SDA_PIN     21   // I2C Data
+#define SCL_PIN     22   // I2C Clock
 
+// ================= THRESHOLDS =================
+const int THRESHOLD_LOW  = 1200;
+const int THRESHOLD_HIGH = 2500;
+
+// ================= VARIABLES =================
+int gasValue = 0;
+
+// =====================================================
+// SETUP
+// =====================================================
 void setup() {
+
   Serial.begin(115200);
 
-  // Initialize Hardware Pins
-  pinMode(GAS_SENSOR_PIN, INPUT);
+  // Configure ADC range for ESP32
+  analogSetAttenuation(ADC_11db);
+
+  // Pin Modes
+  pinMode(MQ4_PIN, INPUT);
+
   pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(RED_LED, OUTPUT);
-  pinMode(BLUE_LED, OUTPUT);
 
-  // Initial LED State
-  digitalWrite(BLUE_LED, HIGH);
-  digitalWrite(RED_LED, LOW);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_YELLOW, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
 
-  // Initialize Display
-  if(!display.begin(SSD1306_SWITCHCAPVCC)) {
+  // Initialize I2C
+  Wire.begin(SDA_PIN, SCL_PIN);
+
+  // Initialize OLED
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("SSD1306 allocation failed"));
-    for(;;); // Don't proceed, loop forever
+    for(;;);
   }
 
+  // Startup Screen
   display.clearDisplay();
+
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  display.setCursor(10, 20);
-  display.println("SYSTEM STARTING...");
+
+  display.setCursor(10, 15);
+  display.println("METHANE DETECTOR");
+
+  display.setCursor(10, 35);
+  display.println("SYSTEM INITIALIZING");
+
   display.display();
-  
-  delay(2000); // Sensor pre-heat delay
+
+  delay(2000);
+
+  // MQ-4 Warmup
+  display.clearDisplay();
+
+  display.setCursor(10, 20);
+  display.println("WARMING SENSOR");
+
+  display.setCursor(10, 40);
+  display.println("PLEASE WAIT...");
+
+  display.display();
+
+  delay(30000);
 }
 
+// =====================================================
+// MAIN LOOP
+// =====================================================
 void loop() {
-  // 1. Read the Sensor
-  int rawValue = analogRead(GAS_SENSOR_PIN);
-  
-  // 2. Update Serial Monitor for debugging
-  Serial.print("Methane Raw Value: ");
-  Serial.println(rawValue);
 
-  // 3. Update OLED Display
-  updateDisplay(rawValue);
+  // ===== Sensor Averaging for Stable Readings =====
+  long total = 0;
 
-  // 4. Alert Logic
-  if (rawValue > gasThreshold) {
-    triggerAlarm(true);
-  } else {
-    triggerAlarm(false);
+  for(int i = 0; i < 10; i++) {
+    total += analogRead(MQ4_PIN);
+    delay(5);
   }
 
-  delay(200); // Fast response time
-}
+  gasValue = total / 10;
 
-void updateDisplay(int value) {
+  Serial.print("Gas Value: ");
+  Serial.println(gasValue);
+
+  // ===== OLED DISPLAY =====
   display.clearDisplay();
-  
+
   display.setTextSize(1);
-  display.setCursor(0,0);
+  display.setCursor(0, 0);
   display.println("METHANE MONITOR");
+
   display.drawLine(0, 10, 128, 10, WHITE);
 
+  // Gas Value
   display.setTextSize(2);
-  display.setCursor(20, 30);
-  display.print("VAL: ");
-  display.print(value);
+  display.setCursor(15, 20);
 
-  display.setTextSize(1);
-  display.setCursor(0, 55);
-  if(value > gasThreshold) {
-    display.print("STATUS: !!! DANGER !!!");
-  } else {
-    display.print("STATUS: NORMAL");
+  display.print(gasValue);
+  display.print(" ADC");
+
+  // ===== STATUS LOGIC =====
+  if (gasValue < THRESHOLD_LOW) {
+
+    statusSafe();
+
   }
-  
+  else if (gasValue >= THRESHOLD_LOW &&
+           gasValue < THRESHOLD_HIGH) {
+
+    statusWarning();
+
+  }
+  else {
+
+    statusDanger();
+
+  }
+
   display.display();
+
+  delay(300);
 }
 
-void triggerAlarm(bool active) {
-  if (active) {
-    digitalWrite(RED_LED, HIGH);
-    digitalWrite(BLUE_LED, LOW);
-    
-    // Pulsing Buzzer
-    digitalWrite(BUZZER_PIN, HIGH);
-    delay(50);
-    digitalWrite(BUZZER_PIN, LOW);
-  } else {
-    digitalWrite(RED_LED, LOW);
-    digitalWrite(BLUE_LED, HIGH);
-    digitalWrite(BUZZER_PIN, LOW);
-  }
+// =====================================================
+// SAFE STATUS
+// =====================================================
+void statusSafe() {
+
+  digitalWrite(LED_GREEN, HIGH);
+  digitalWrite(LED_YELLOW, LOW);
+  digitalWrite(LED_RED, LOW);
+
+  digitalWrite(BUZZER_PIN, LOW);
+
+  display.setTextSize(1);
+
+  display.setCursor(0, 55);
+  display.print("STATUS: SAFE");
+}
+
+// =====================================================
+// WARNING STATUS
+// =====================================================
+void statusWarning() {
+
+  digitalWrite(LED_GREEN, LOW);
+  digitalWrite(LED_YELLOW, HIGH);
+  digitalWrite(LED_RED, LOW);
+
+  digitalWrite(BUZZER_PIN, LOW);
+
+  display.setTextSize(1);
+
+  display.setCursor(0, 55);
+  display.print("STATUS: WARNING");
+}
+
+// =====================================================
+// DANGER STATUS
+// =====================================================
+void statusDanger() {
+
+  digitalWrite(LED_GREEN, LOW);
+  digitalWrite(LED_YELLOW, LOW);
+  digitalWrite(LED_RED, HIGH);
+
+  // Buzzer Pulse
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(50);
+  digitalWrite(BUZZER_PIN, LOW);
+
+  display.setTextSize(1);
+
+  display.setCursor(0, 55);
+  display.print("STATUS: DANGER");
 }
