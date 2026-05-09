@@ -11,4 +11,4 @@ OUTPUT PATH:
 Sensor (B) -> 1k Ohm -> GPIO 34 (Analog) -> 2k Ohm -> GND
 ==========================================================
 Buzzer: D25
-Display MOSI: D23 | SCK: D18 | CS: D5
+Display SDA: D21 | SCL: D22
