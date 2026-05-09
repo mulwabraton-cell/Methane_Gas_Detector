@@ -1,3 +1,14 @@
 MQ-4 Analog: D34
+==========================================================
+REVISED HARDWARE MAPPING: RAW MQ-4 SENSOR (WINSEN)
+
+PIN CONFIGURATION:
+- Heater (H): Top-Left & Bottom-Right -> 5V / GND
+- Anode (A): Top-Right & Mid-Right -> 5V
+- Cathode (B): Mid-Left & Bot-Left -> Signal Out (to Divider)
+
+OUTPUT PATH:
+Sensor (B) -> 1k Ohm -> GPIO 34 (Analog) -> 2k Ohm -> GND
+==========================================================
 Buzzer: D25
 Display MOSI: D23 | SCK: D18 | CS: D5
